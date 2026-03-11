@@ -23,7 +23,7 @@ with st.sidebar:
 # --- 3. 核心运算与渲染逻辑 ---
 if file_sales is not None and file_forecast is not None:
     try:
-        with st.spinner('🚀 正在为您拼命清洗和计算数据，请稍候...'):
+        with st.spinner('🚀 请稍候...'):
             # --- 读取数据 ---
             df_sales = pd.read_csv(file_sales) if file_sales.name.endswith('csv') else pd.read_excel(file_sales)
             df_forecast = pd.read_csv(file_forecast) if file_forecast.name.endswith('csv') else pd.read_excel(file_forecast)
@@ -173,3 +173,4 @@ if file_sales is not None and file_forecast is not None:
 else:
 
     st.info("👈 **第一步：** 请在左侧侧边栏将您的《销量统计》和《销量预测》表格拖拽入框中。系统将在 2 秒内为您渲染完整视图！")
+
