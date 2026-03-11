@@ -7,8 +7,7 @@ import math
 
 # --- 1. 网页全局设置 ---
 st.set_page_config(page_title="动态销量趋势与预测看板", layout="wide", page_icon="📈")
-st.title("📊 销量趋势与预测智能看板 (V3.0)")
-st.markdown("请在左侧上传最新数据，系统将自动清洗、归类并生成全景动态视图。")
+st.title("📊 销量趋势与预测看板")
 
 # --- 2. 侧边栏：文件上传 ---
 with st.sidebar:
@@ -172,4 +171,5 @@ if file_sales is not None and file_forecast is not None:
         st.error(f"❌ 数据处理出错，请检查上传的表格是否包含必需的月份字段。详细错误：{e}")
 
 else:
+
     st.info("👈 **第一步：** 请在左侧侧边栏将您的《销量统计》和《销量预测》表格拖拽入框中。系统将在 2 秒内为您渲染完整视图！")
