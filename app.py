@@ -5,8 +5,8 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 # --- 1. 网页全局设置 ---
-st.set_page_config(page_title="AI 销量趋势与风险诊断看板", layout="wide", page_icon="📈")
-st.title("📈 销量趋势与 AI 风险诊断看板 (V5.1 增强修复版)")
+st.set_page_config(page_title="销量趋势与风险诊断看板", layout="wide", page_icon="📈")
+st.title("📈 销量趋势看板")
 st.markdown("集成 **3个月滑动平均淡旺季测算**、**3:7加权历史基准** 与 **定位&SKU级联筛选**，辅助精准备货。")
 
 # --- 2. 侧边栏：文件上传 ---
@@ -234,3 +234,4 @@ if file_sales is not None and file_forecast is not None:
         st.error(f"❌ 数据处理出错。报错信息：{e}")
 else:
     st.info("👈 **第一步：** 请在左侧侧边栏上传《销量统计》与《销量预测》表格以启用智能诊断引擎。")
+
