@@ -3,11 +3,10 @@ import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-import re
 
 # --- 1. 网页全局设置 ---
 st.set_page_config(page_title="AI 销量趋势与风险诊断看板", layout="wide", page_icon="📈")
-st.title("📈 销量趋势与 AI 风险诊断看板 (V5.0 终极版)")
+st.title("📈 销量趋势与 AI 风险诊断看板 (V5.1 增强修复版)")
 st.markdown("集成 **3个月滑动平均淡旺季测算**、**3:7加权历史基准** 与 **定位&SKU级联筛选**，辅助精准备货。")
 
 # --- 2. 侧边栏：文件上传 ---
@@ -48,15 +47,19 @@ if file_sales is not None and file_forecast is not None:
             df_sales['国家'] = df_sales['国家'].fillna('未知')
             df_sales['SKU'] = df_sales['SKU'].fillna('未知SKU')
             
-            # 提取产品定位并展开（为了能支持多选过滤）
+            # 提取产品定位并展开
             df_sales['定位标签列表'] = df_sales['标签'].apply(extract_position_tags)
-            
             valid_sales_categories = df_sales['二级分类'].unique().tolist()
 
+            # --- 构建安全的映射字典 (修复 FNSKU 重复报错问题) ---
+            # 使用 groupby().first() 取每个 FNSKU 的第一条记录，完美避开重复报错
+            fnsku_map = df_sales.groupby('FNSKU')[['二级分类', '国家', 'SKU', '定位标签列表']].first().to_dict('index')
+
             # --- 清洗预测销量表 ---
-            # 构建 FNSKU 到各个字段的映射桥梁
-            fnsku_map = df_sales.set_index('FNSKU')[['二级分类', '国家', 'SKU', '定位标签列表']].to_dict('index')
-            
+            # 兼容处理 sku 列名大小写
+            if 'sku' in df_forecast.columns and 'SKU' not in df_forecast.columns:
+                df_forecast.rename(columns={'sku': 'SKU'}, inplace=True)
+                
             # 填补品线
             if '品线' in df_forecast.columns:
                 df_forecast['二级分类'] = df_forecast['品线']
@@ -64,10 +67,19 @@ if file_sales is not None and file_forecast is not None:
                 df_forecast['二级分类'] = df_forecast['FNSKU'].map(lambda x: fnsku_map.get(x, {}).get('二级分类', '不成类目'))
             df_forecast['二级分类'] = df_forecast['二级分类'].apply(lambda x: x if x in valid_sales_categories else '不成类目')
             
-            # 填补国家、SKU与定位标签
-            df_forecast['国家'] = df_forecast.get('国家', df_forecast['FNSKU'].map(lambda x: fnsku_map.get(x, {}).get('国家', '未知')))
-            df_forecast['SKU'] = df_forecast['FNSKU'].map(lambda x: fnsku_map.get(x, {}).get('SKU', '未知SKU'))
-            df_forecast['定位标签列表'] = df_forecast['FNSKU'].map(lambda x: fnsku_map.get(x, {}).get('定位标签列表', ['未打标']))
+            # 填补国家、SKU与定位标签 (优先读取预测表自带的，若无则靠 FNSKU 映射)
+            if '国家' not in df_forecast.columns:
+                df_forecast['国家'] = df_forecast['FNSKU'].map(lambda x: fnsku_map.get(x, {}).get('国家', '未知'))
+            if 'SKU' not in df_forecast.columns:
+                df_forecast['SKU'] = df_forecast['FNSKU'].map(lambda x: fnsku_map.get(x, {}).get('SKU', '未知SKU'))
+                
+            # 兼容新版预测表自带的“产品定位”列
+            if '产品定位' in df_forecast.columns:
+                df_forecast['定位标签列表'] = df_forecast['产品定位'].apply(extract_position_tags)
+            elif '计划应用标签-ASIN' in df_forecast.columns:
+                df_forecast['定位标签列表'] = df_forecast['计划应用标签-ASIN'].apply(extract_position_tags)
+            else:
+                df_forecast['定位标签列表'] = df_forecast['FNSKU'].map(lambda x: fnsku_map.get(x, {}).get('定位标签列表', ['未打标']))
 
             # 聚合预测月份
             fc_cols = ['2026-03', '2026-04', '2026-05', '2026-06', '2026-07']
@@ -79,7 +91,7 @@ if file_sales is not None and file_forecast is not None:
 
             # --- 侧边栏级联交互 ---
             # 1. 国家
-            all_countries = ['全球 (全部站点)'] + sorted(list(set(df_sales['国家'].unique()) | set(df_forecast['国家'].unique())))
+            all_countries = ['全球 (全部站点)'] + sorted(list(set(df_sales['国家'].dropna().unique()) | set(df_forecast['国家'].dropna().unique())))
             selected_country = country_filter.selectbox("🌍 1. 国家/站点筛选", all_countries)
             
             if selected_country != '全球 (全部站点)':
@@ -87,22 +99,21 @@ if file_sales is not None and file_forecast is not None:
                 df_forecast = df_forecast[df_forecast['国家'] == selected_country]
             
             # 2. 品线
-            all_categories = sorted(df_sales['二级分类'].unique().tolist())
+            all_categories = sorted(df_sales['二级分类'].dropna().unique().tolist())
             selected_cats = category_filter.multiselect("📑 2. 品线筛选 (默认全选)", all_categories, default=all_categories[:5] if len(all_categories)>5 else all_categories)
             if selected_cats:
                 df_sales = df_sales[df_sales['二级分类'].isin(selected_cats)]
                 df_forecast = df_forecast[df_forecast['二级分类'].isin(selected_cats)]
                 
             # 3. 产品定位 (打平列表后提取唯一值)
-            all_positions = sorted(list(set([tag for tags in df_sales['定位标签列表'] for tag in tags])))
+            all_positions = sorted(list(set([tag for tags in df_sales['定位标签列表'].dropna() for tag in tags])))
             selected_positions = position_filter.multiselect("💡 3. 产品定位筛选", all_positions, default=[])
             if selected_positions:
-                # 只要包含选中定位之一即可
                 df_sales = df_sales[df_sales['定位标签列表'].apply(lambda x: any(p in x for p in selected_positions))]
                 df_forecast = df_forecast[df_forecast['定位标签列表'].apply(lambda x: any(p in x for p in selected_positions))]
 
             # 4. SKU 动态级联
-            all_skus = sorted(df_sales['SKU'].unique().tolist())
+            all_skus = sorted(df_sales['SKU'].dropna().unique().tolist())
             selected_skus = sku_filter.multiselect(f"📦 4. SKU精准下钻 (当前可选 {len(all_skus)} 个)", all_skus, default=[])
             if selected_skus:
                 df_sales = df_sales[df_sales['SKU'].isin(selected_skus)]
@@ -114,6 +125,11 @@ if file_sales is not None and file_forecast is not None:
             hist_grouped = df_sales.groupby(group_col)[hist_cols].sum()
             forecast_grouped = df_forecast.groupby(group_col)[fc_cols].sum()
             combined_data = pd.concat([hist_grouped, forecast_grouped], axis=1).fillna(0)
+            
+            if combined_data.empty:
+                st.warning("⚠️ 当前筛选条件下没有数据，请放宽左侧的筛选条件。")
+                st.stop()
+                
             analysis_items = combined_data.sum(axis=1).sort_values(ascending=False).index.tolist()
 
             st.markdown("---")
@@ -131,7 +147,7 @@ if file_sales is not None and file_forecast is not None:
                 for j, m in enumerate(['03', '04', '05', '06', '07']):
                     y2026_pred[j+2] = row_data.get(f"2026-{m}", np.nan)
 
-                # --- 算法1：历史全盘均值与极致极小点 ---
+                # --- 算法1：历史全盘均值与极值点 ---
                 hist_24_25 = y2024 + y2025
                 valid_hist = [v for v in hist_24_25 if v > 0]
                 hist_mean = np.mean(valid_hist) if valid_hist else 0
@@ -141,14 +157,14 @@ if file_sales is not None and file_forecast is not None:
                 max_idx = hist_24_25.index(max_val) if hist_24_25 else 0
                 min_idx = hist_24_25.index(min_val) if hist_24_25 else 0
                 
-                max_year, max_month = ("2024", months[max_idx]) if max_idx < 12 else ("2025", months[max_idx-12])
-                min_year, min_month = ("2024", months[min_idx]) if min_idx < 12 else ("2025", months[min_idx-12])
+                max_month = months[max_idx] if max_idx < 12 else months[max_idx-12]
+                min_month = months[min_idx] if min_idx < 12 else months[min_idx-12]
 
                 # --- 算法2：3个月滑动平均找综合淡旺季 ---
                 avg_monthly = [(y2024[i] + y2025[i])/2 for i in range(12)]
                 rolling_3 = []
                 for i in range(12):
-                    prev_m = avg_monthly[i-1] # python 负数索引巧妙解决12月跨年
+                    prev_m = avg_monthly[i-1] 
                     curr_m = avg_monthly[i]
                     next_m = avg_monthly[(i+1)%12]
                     rolling_3.append((prev_m + curr_m + next_m) / 3)
@@ -185,15 +201,12 @@ if file_sales is not None and file_forecast is not None:
                 
                 with col_chart:
                     fig = go.Figure()
-                    # 历史均值线
                     fig.add_hline(y=hist_mean, line_dash="dash", line_color="gray", annotation_text=f"月均及格线: {int(hist_mean)}", annotation_position="top left")
-                    # 折线
                     fig.add_trace(go.Scatter(x=months, y=y2024, mode='lines', name='2024 实际', line=dict(color='#1f77b4', width=2)))
                     fig.add_trace(go.Scatter(x=months, y=y2025, mode='lines', name='2025 实际', line=dict(color='#2ca02c', width=2)))
                     fig.add_trace(go.Scatter(x=months, y=y2026_act, mode='lines+markers', name='2026 实际', line=dict(color='#ff7f0e', width=3)))
                     fig.add_trace(go.Scatter(x=months, y=y2026_pred, mode='lines+markers', name='2026 预测', line=dict(color='#ff7f0e', width=3, dash='dash')))
 
-                    # 极值点标注
                     if max_val > 0:
                         fig.add_trace(go.Scatter(x=[max_month], y=[max_val], mode='markers+text', text=["🔴 销售峰值"], textposition="top center", marker=dict(color='red', size=10), showlegend=False, name="历史峰值"))
                     if min_val > 0:
@@ -206,18 +219,18 @@ if file_sales is not None and file_forecast is not None:
                     st.plotly_chart(fig, use_container_width=True)
 
                 with col_diag:
-                    st.markdown("### 💡 AI 趋势诊断")
-                    st.markdown(f"**🔥 综合核心旺季**：\n基于历史3个月滑动平滑，集中在 `{best_season}`。")
-                    st.markdown(f"**❄️ 综合平淡淡季**：\n基于历史3个月滑动平滑，集中在 `{worst_season}`。")
+                    st.markdown("### 💡 趋势诊断")
+                    st.markdown(f"**🔥 综合核心旺季**：\n集中在 `{best_season}`。 *(基于历史3个月滑动平均)*")
+                    st.markdown(f"**❄️ 综合平淡淡季**：\n集中在 `{worst_season}`。 *(基于历史3个月滑动平均)*")
                     st.markdown("---")
                     st.markdown("**🎯 3-7月预测排雷**：")
                     st.markdown(f"同期加权基准值 (25年x0.7+24年x0.3): `{int(weighted_baseline)}`")
-                    st.markdown(f"未来4个月预测值: `{int(sum_pred_3_7)}`")
+                    st.markdown(f"未来4个月预测总量: `{int(sum_pred_3_7)}`")
                     st.info(diag_alert)
                     
                 st.markdown("---")
 
     except Exception as e:
-        st.error(f"❌ 数据处理出错，请确认表格结构是否有变动。详细报错信息：{e}")
+        st.error(f"❌ 数据处理出错。报错信息：{e}")
 else:
-    st.info("👈 **第一步：** 请在左侧侧边栏上传《销量统计》与《销量预测》表格以启用 V5.0 AI 诊断引擎。")
+    st.info("👈 **第一步：** 请在左侧侧边栏上传《销量统计》与《销量预测》表格以启用智能诊断引擎。")
