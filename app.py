@@ -741,7 +741,7 @@ def create_dual_axis_trend_chart(store_row, market_data, seasonal_result, select
 # 侧边栏：筛选器
 # ============================================================
 with st.sidebar:
-    st.markdown("# 📊 备货看板")
+    st.markdown("# 📊 多维度看板")
     st.markdown("---")
 
     # ============================================================
